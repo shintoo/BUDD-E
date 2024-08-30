@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "budd-e"
+version = "0.0.1"
+description = "BUDD-E"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+spidev = "^3.6"
+pysine = "^0.9.2"
+"RPi.GPIO" = "^0.7.1"
+scikit-learn = "^1.5.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

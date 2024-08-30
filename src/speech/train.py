@@ -5,7 +5,7 @@ from sklearn.pipeline import make_pipeline
 import re
 import pickle
 from datetime import datetime
-from training_data import *
+from speech.training_data import *
 
 
 def train():

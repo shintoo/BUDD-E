@@ -6,10 +6,14 @@ from random import randint
 BASE_FREQ = 400
 
 def _play_tone(frequency, duration):
+    if not frequency:
+        sleep(duration)
+        return
+
     random_mod = randint(0, 75)
     sine(frequency+BASE_FREQ+random_mod, duration)
 
-def _say(label):
+def say(label):
     for tone in words[label]:
         _play_tone(*tone)
 
@@ -19,8 +23,8 @@ words = {
         (1240.0, 0.1),
     ],
     "yes": [
-        (1950, 0.1),
-        (2000, 0.1),
+        (1950, 0.05),
+        (2050, 0.1),
     ],
     "no": [
         (1850, 0.1),
@@ -109,5 +113,5 @@ words = {
 if __name__ == "__main__":
     for word in words:
         print(word)
-        _say(word)
+        say(word)
         sleep(1)

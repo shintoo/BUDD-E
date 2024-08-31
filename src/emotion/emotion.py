@@ -21,7 +21,7 @@ class Emotion(Enum):
 
 
 class EmotionState:
-    def __init__(self, initial_state: np.ndarray = np.array([50, 50, 50])):
+    def __init__(self, initial_state: np.ndarray = np.array([0, 0, 0])):
         self.pad_vector = initial_state 
 
         # emotion: [p_bounds, a_bounds, d_bounds]

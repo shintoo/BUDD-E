@@ -1,6 +1,6 @@
 import math
 import os
-import sys 
+import sys
 import time
 import logging
 import threading
@@ -8,13 +8,30 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from random import randint
 from datetime import datetime
+import numpy as np
 
 import spidev as SPI
-from PIL import Image,ImageDraw,ImageFont
+import colorsys
+from PIL import Image,ImageDraw,ImageFont,ImageColor,ImageOps
 
 from .gc9a01 import GC9A01
+from emotion import Emotion
 
 DELTA_TIME_CONSTANT = 18.0
+
+EMOTION_COLORS = {
+    Emotion.HAPPY: "pink",
+    Emotion.EXCITED: "chartreuse",
+    Emotion.SAD: "blue",
+    Emotion.ANXIOUS: "orange",
+    Emotion.MAD: "red",
+    Emotion.SLEEPY: "purple",
+    Emotion.TIRED: "slateblue",
+    Emotion.RELAXED: "green",
+    Emotion.BORED: "gray",
+    Emotion.SCARED: "orangered",
+    Emotion.SURPRISED: "gold",
+}
 
 def rounded_rectangle(self: ImageDraw, xy, corner_radius=0, fill=None, outline=None):
     upper_left_point = xy[0]
@@ -64,38 +81,37 @@ def rounded_rectangle(self: ImageDraw, xy, corner_radius=0, fill=None, outline=N
 ImageDraw.rounded_rectangle = rounded_rectangle
 
 class Face(threading.Thread):
-    def __init__(self, mood="neutral", eye_width=40, eye_height=60, distance=60, radius=12, color="lightseagreen", anchor=[120, 120]):
+    def __init__(self, emotion=Emotion.NEUTRAL, eye_width=40, eye_height=60, distance=60, radius=12, color="lightseagreen", anchor=[120, 120]):
         super().__init__()
-        self.mood = mood
-        self.expression = "neutral"
+        self.emotion = emotion
+        self.expression = None
         self.eye_width = eye_width
         self.eye_height = eye_height
         self.distance = distance
         self.radius = radius
         self.color = color
-        self.display = GC9A01(spi=SPI.SpiDev(0, 0),spi_freq=80000000,rst=27,dc=25,bl=18) 
+        self.display = GC9A01(spi=SPI.SpiDev(0, 0),spi_freq=80000000,rst=27,dc=25,bl=18)
         self.display.Init()
-        self.display.clear() 
+        self.display.clear()
         self.display.bl_DutyCycle(50)
-        self.image = Image.new("RGB", (self.display.width, self.display.height), "black")
+        self.image = Image.new("RGBA", (self.display.width, self.display.height), "black")
         self.draw = ImageDraw.Draw(self.image)
-        self.font = ImageFont.truetype("assets/font.otf", 72) 
+        self.font = ImageFont.truetype("assets/font.otf", 72)
         self.anchor = anchor
         self.position = [self.anchor[0], self.anchor[1]]
         self.velocity = [0, 0]
         self.blinking = False
         self.gazing = threading.Event()
-
         self.target = None
         self.scaling = False
-
+        self.background = Image.open("assets/bg.png").convert("L")
         self._blink_opening = False
         self._blink_closing = False
         self.defaults = {
             "eye_height": eye_height,
             "eye_width": eye_width,
             "distance": distance,
-            "mood": mood,
+            "emotion": emotion,
             "radius": radius,
             "color": color,
         }
@@ -112,16 +128,27 @@ class Face(threading.Thread):
 
     def render(self):
         self.clear()
+#        self.__draw_background()
         self._draw_eyes()
         self._draw_mouth()
-        self._draw_extras()
-        self.display.ShowImage(self.image) 
+        self._draw_extras() 
+
+        data = np.array(self.image)
+        r, g, b, a = data.T
+        black_areas = (r == 0) & (g == 0) & (b == 0) & (a == 255)
+        data[...][black_areas.T] = (0, 0, 0, 0)
+
+        face = Image.fromarray(data)
+        self.__draw_background()
+        self.image.paste(face, (0, 0), face)
+
+        self.display.ShowImage(self.image)
 
     def _draw_extras(self):
-        match self.mood:
-            case "sleepy":
+        match self.emotion:
+            case Emotion.SLEEPY:
                 self.draw.text((120, 40), "z", fill=self.color, font=self.font)
-                self.draw.text((160, 35), "Z", fill=self.color, font=self.font)     
+                self.draw.text((160, 35), "Z", fill=self.color, font=self.font)
 
     def _draw_mouth(self):
         x, y = self.position
@@ -131,14 +158,16 @@ class Face(threading.Thread):
         right = x + 15
         bottom = top + 20
 
-        match self.mood:
-            case "bored":
+        match [self.emotion, self.expression]:
+            case Emotion.BORED | Emotion.TIRED, _:
                 self.draw.line(((left, top+10), (right, top+10)), fill=self.color, width=6)
-            case "mad" | "sad":
+            case Emotion.MAD | Emotion.SAD, _:
                 self.draw.arc(((left, top), (right, bottom)), start=180, end=0, fill=self.color, width=6)
-            case "sleepy":
-                #self.draw.arc(((left+10, top+1), (right-10, bottom-1)), start=0, end=360, fill=self.color, width=6)
+            case Emotion.SLEEPY | Emotion.SURPRISED | Emotion.SCARED, _:
                 self.draw.circle((x, top), radius=6, fill=self.color)
+            case _, "laughing":
+                self.draw.arc(((left, top), (right, bottom)), start=0, end=180, fill=self.color, width=6)
+                self.draw.line(((left, top+12), (right, top+12)), fill=self.color, width=6)
             case _:
                 self.draw.arc(((left, top), (right, bottom)), start=0, end=180, fill=self.color, width=6)
 
@@ -157,20 +186,28 @@ class Face(threading.Thread):
 
         self.draw.rounded_rectangle(((x1, y1), (x2, y2)), self.radius, fill=self.color)
 
-        match self.mood:
-            case "happy":
+        match self.emotion:
+            case Emotion.HAPPY | Emotion.EXCITED:
                 self.draw.circle((x, y2+50), 70, fill="black")
-            case "mad":
+            case Emotion.MAD:
                 self.draw.circle((x+10 if side == "left" else x-10, y1-20), 50, fill="black")
-            case "sad": 
+            case Emotion.SAD:
                 self.draw.circle((x-10 if side == "left" else x+10, y1-50), 70, fill="black")
-            case "bored":
+            case Emotion.SCARED:
+                self.draw.circle((x-10 if side == "left" else x+10, y1-20), 50, fill="black")
+            case Emotion.BORED:
                 self.draw.rectangle(((x1, y1-10), (x2, y1+10)), fill="black")
-            case "sleepy":
+            case Emotion.SLEEPY:
                 self.draw.circle((x, y1-20), 70, fill="black")
+            case Emotion.TIRED:
+                self.draw.circle((x, y1-35), 70, fill="black")
+            case Emotion.SURPRISED: # TODO
+                pass
         match self.expression:
             case "no":
                 self.draw.rectangle(((x1, y1-10), (x2, y1+5)), fill="black")
+            case "laughing":
+                self.draw.circle((x, y2+50), 70, fill="black")
 
     def _draw_eyes(self):
         # xy is center of face
@@ -182,16 +219,16 @@ class Face(threading.Thread):
 
         # Scale eye sizes for looking to the left and right, e.g. ( o O) and (O o )
         if self.scaling:
-            if x < self.display.width / 2:           
+            if x < self.display.width / 2:
                 dist_from_center = self.display.width / 2 - x
                 normalized_dist = dist_from_center / (self.display.width/2 - self.LOWER_BOUND_X)
                 scale_left = min(1.0 + (normalized_dist / 2)**2, 1.45)
                 scale_right = 1.0 - (normalized_dist / 2)**2
-            elif x > self.display.width / 2: 
+            elif x > self.display.width / 2:
                 dist_from_center = x - self.display.width / 2
                 normalized_dist = dist_from_center / (self.UPPER_BOUND_X - self.display.width/2)
                 scale_right = min(1.0 + (normalized_dist / 2)**2, 1.45)
-                scale_left = 1.0 - (normalized_dist / 2)**2 
+                scale_left = 1.0 - (normalized_dist / 2)**2
 
             hd = self.distance * (1.5 * min(scale_left, scale_right)) / 2 + self.eye_width / 2
         e1_x = x - hd
@@ -219,10 +256,10 @@ class Face(threading.Thread):
         distance = math.sqrt(delta_pos[0]**2 + delta_pos[1]**2)
         time = distance / speed
         self.velocity = [(x - x1) / time, (y - y1) / time]
-        self.target = [x, y] 
+        self.target = [x, y]
 
     def nod(self):
-        def _nod(): 
+        def _nod():
             origin = tuple(self.position)
             self.move_to_relative(0, 20)
             while self.target:
@@ -237,8 +274,8 @@ class Face(threading.Thread):
         def _shake_no():
             self.expression = "no"
             origin = tuple(self.position)
- 
-            self.move_to(origin[0], origin[1]+5) 
+
+            self.move_to(origin[0], origin[1]+5)
             self.move_to(origin[0]-10, origin[1])
             while self.target:
                 time.sleep(0.05)
@@ -248,13 +285,13 @@ class Face(threading.Thread):
             self.move_to(origin[0]-10, origin[1])
             while self.target:
                 time.sleep(0.05)
-            self.expression = "neutral" 
+            self.expression = "neutral"
             self.return_to_anchor()
 
         self._submit(_shake_no)
 
     def shake(self):
-        def _shake(): 
+        def _shake():
             origin = tuple(self.position)
             xdeltas = [-8, 8, -15, 15, -15, 15, -15]
             speeds = [5, 5, 10, 10, 10, 10, 10]
@@ -270,6 +307,27 @@ class Face(threading.Thread):
 
         self._submit(_shake)
 
+    def laugh(self):
+        def _laugh():
+            try:
+                self.expression = "laughing"
+                origin = tuple(self.position)
+                ydeltas = [-15, 0, -15, 0, -15]
+                speeds = [5, 5, 5, 5, 5]
+                delays = [0.08]*5
+
+                for y, d, s in zip(ydeltas, delays, speeds):
+                    self.move_to(origin[0], origin[1]+y, speed=s)
+                    while self.target:
+                        time.sleep(d)
+
+                time.sleep(0.15)
+                self.expression = None
+                self.return_to_anchor()
+            except Exception as e:
+                print(e)
+
+        self._submit(_laugh)
 
     def return_to_anchor(self, speed=7):
         self.move_to(self.anchor[0], self.anchor[1], speed)
@@ -288,23 +346,13 @@ class Face(threading.Thread):
     def random_within_bounds(self):
         return [randint(self.LOWER_BOUND_X, self.UPPER_BOUND_X), randint(self.LOWER_BOUND_Y, self.UPPER_BOUND_Y)]
 
-    def set_mood(self, mood: str):
-        self.mood = mood
-
-        match self.mood:
-            case "neutral" | "relaxed" | "calm" | "curious" | "unpleasant":
-                self.color = self.defaults["color"]
-            case "mad":
-                self.color = "firebrick"
-            case "sad" | "disappointed":
-                self.color = "midnightblue"
-            case "bored":
-                self.color = "darkslategray"
-            case "happy" | "playful" | "excited":
-                self.color = "limegreen"
-            case "sleepy" | "tired":
-                self.color = "purple"
-
+    def set_emotion(self, emotion: str):
+        self.emotion = emotion
+        if emotion == Emotion.NEUTRAL:
+            self.color = self.defaults["color"]
+        else:
+            self.color = EMOTION_COLORS[self.emotion]
+ 
     def blink(self):
         if self.blinking:
             return
@@ -317,7 +365,7 @@ class Face(threading.Thread):
             case "left":
                 self.move_to(self.LOWER_BOUND_X, self.anchor[1], speed=speed)
             case "right":
-                self.move_to(self.UPPER_BOUND_X, self.anchor[1], speed=speed) 
+                self.move_to(self.UPPER_BOUND_X, self.anchor[1], speed=speed)
             case "up":
                 self.move_to(self.anchor[0], self.LOWER_BOUND_Y, speed=speed)
             case "down":
@@ -330,7 +378,7 @@ class Face(threading.Thread):
 
         def _gaze_on():
             while self.gazing.is_set():
-                self.move_to(*self.random_within_bounds())
+                self.move_to(*self.random_within_bounds(), speed=randint(5, 10))
                 time.sleep(randint(3, 8))
 
         self._submit(_gaze_on)
@@ -350,8 +398,8 @@ class Face(threading.Thread):
     def _update_position(self, delta):
         self.position[0] += self.velocity[0] * delta
         self.position[1] += self.velocity[1] * delta
-        
-    def _update_move_to(self, delta): 
+
+    def _update_move_to(self, delta):
         speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
         margin = int(speed)
 
@@ -360,18 +408,18 @@ class Face(threading.Thread):
         if (self.position[0] >= self.target[0] - margin and self.position[0] <= self.target[0] + margin
            and self.position[1] >= self.target[1] - margin and self.position[1] <= self.target[1] + margin):
             self.velocity = [0, 0]
-            self.target = None 
+            self.target = None
 
     def _update_blink(self, delta):
         if not self.blinking:
             return
         if self._blink_closing:
-            self.eye_height -= 15 * delta
-            if self.eye_height <= 8:
+            self.eye_height -= 20 * delta
+            if self.eye_height <= 0:
                 self._blink_closing = False
                 self._blink_opening = True
         if self._blink_opening:
-            self.eye_height += 15 * delta
+            self.eye_height += 20 * delta
             if self.eye_height >= self.defaults["eye_height"]:
                 self.eye_height = self.defaults["eye_height"]
                 self.blinking = False
@@ -394,6 +442,10 @@ class Face(threading.Thread):
 
             prev = now
 
+    def __draw_background(self):
+        bg = ImageOps.colorize(self.background, black="black", mid=self.color, white=self.color)
+        self.image.paste(bg, (0, 0)) 
+        
 if __name__ == "__main__":
     face = Face(color="teal", eye_height=40, eye_width=40)
     face.start()

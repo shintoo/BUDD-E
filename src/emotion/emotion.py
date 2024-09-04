@@ -3,24 +3,24 @@ from random import randint
 from enum import Enum, auto
 
 class Emotion(Enum):
-    HAPPY = (55, 24, 28)
-    EXCITED = (55, 70, 70)
-    SAD = (-18, -3, -14)
-    ANXIOUS = (-20, 50, -50)
-    MAD = (-40, 22, 12)
-    SLEEPY = (0, -80, -30)
-    TIRED = (-30, -70, -50)
-    RELAXED = (20, -50, 30)
-    NEUTRAL = (0, 0, 0)
-    SCARED = (-19, 26, -13)
-    SURPRISED = (34, 34, 4)
-    BORED = (-20, -50, -30)
+    HAPPY = (55.0, 24.0, 28.0)
+    EXCITED = (55.0, 70.0, 70.0)
+    SAD = (-18.0, -3.0, -14.0)
+    ANXIOUS = (-20.0, 50.0, -50.0)
+    MAD = (-40.0, 22.0, 12.0)
+    SLEEPY = (0.0, -80.0, -30.0)
+    TIRED = (-30.0, -70.0, -50.0)
+    RELAXED = (20.0, -50.0, 50.0)
+    NEUTRAL = (0.0, 0.0, 0.0)
+    SCARED = (-19.0, 26.0, -13.0)
+    SURPRISED = (34.0, 34.0, 4.0)
+    BORED = (-20.0, -50.0, 20.0)
 
 class EmotionState:
-    def __init__(self, initial_state: np.ndarray = np.array([0, 0, 0])):
+    def __init__(self, initial_state: np.ndarray = np.array([0., 0., 0.])):
         self.pad_vector = initial_state
 
-    def update(self, delta: np.ndarray):
+    def update(self, delta: np.ndarray): 
         self.pad_vector += delta
         self.pad_vector[self.pad_vector > 100.0] = 100.0
         self.pad_vector[self.pad_vector < -100.0] = -100.0
@@ -28,7 +28,7 @@ class EmotionState:
     def set_from_label(self, emotion: Emotion):
         self.pad_vector = np.array(emotion.value)
 
-    def label(self):
+    def all_points_by_distance(self):
         def distance(p1, p2):
             return np.sqrt((p1[0] - p2[0]) ** 2 +
                 (p1[1] - p2[1]) ** 2 +
@@ -37,7 +37,10 @@ class EmotionState:
         distances = [(emotion, distance(self.pad_vector, emotion.value)) for emotion in Emotion]
         distances.sort(key=lambda result: result[1])
 
-        return distances[0][0]
+        return distances
+
+    def label(self):
+        return self.all_points_by_distance()[0][0]
 
     def intensity(self):
         # Normalize to percentage (173 is distance from 0,0,0 at 100,100,100)

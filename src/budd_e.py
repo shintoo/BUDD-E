@@ -1,15 +1,19 @@
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
+import math
 import traceback
+from threading import Thread
 from random import randint
 from typing import Optional
 
+import numpy as np
+from PIL import ImageColor
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 import voice
 from speech import SpeechProcessor
-from face import Face
+from face import Face, EMOTION_COLORS
 from emotion import Emotion, EmotionState
 
 
@@ -19,15 +23,22 @@ class BUDD_E:
         self.sp = SpeechProcessor("./speech/model.pkl")
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.emotion = EmotionState()
-        self.face.pad_vector = self.emotion.pad_vector
+        self.disposition = np.array([15., 5., 10.])
+        self._boredom_time = 10.0
+        self.prev_interaction = datetime.now()
         # This is saved external to self.emotion so we can track when it changes (i.e. compare new label to previous)
         self.emotion_label = self.emotion.label()
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
-        self.chatting = True
+        self.chatting = False
+        self.running = False
+
+        # TODO put this somewhere nicer. Neutral is colored "at runtime" at the moment.
+        EMOTION_COLORS[self.emotion.label()] = color
 
     def start(self):
         self.face.start()
         self.say("hello")
+        self.running = True
 
     def _terminate(self):
         self.threadpoolexecutor.shutdown()
@@ -41,6 +52,7 @@ class BUDD_E:
         self.say("bye")
         time.sleep(0.75)
         self.set_emotion(emotion=Emotion.SLEEPY)
+        time.sleep(0.75)
         self._terminate()
 
     def do(self, task):
@@ -50,8 +62,14 @@ class BUDD_E:
         if not word in voice.words:
             print(f"say: invalid word: {word}")
             word = "okay"
-        print(f"saying {word}")
-        self.do(lambda: voice.say(word))
+        self.do(lambda: voice.say(word)) 
+        intensities = [((tone-1500, dur)) for tone, dur in voice.words[word]]
+
+        slope = (1.5 - 1.1) / (2100 - 750)
+        intensity = lambda tone: 1.1 + slope * (tone - 750)
+        intensities = [(intensity(tone), duration) for tone, duration in voice.words[word]]
+        
+        self.face.vary_intensity(intensities)
 
     def yes(self):
         self.say("yes")
@@ -78,6 +96,8 @@ class BUDD_E:
             case Emotion.HAPPY:
                 self.say("happy")
                 self.face.nod()
+            case Emotion.RELAXED:
+                self.say("relaxed")
             case Emotion.SAD:
                 self.say("sad")
             case Emotion.MAD:
@@ -89,27 +109,15 @@ class BUDD_E:
                 self.say("happy")
             case Emotion.SLEEPY:
                 self.say("sleepy")
+            case Emotion.SURPRISED:
+                self.say("surprised")
+            case Emotion.SCARED:
+                self.face.shake()
 
     def attention(self):
         self.say("yes")
         self.face.gaze_off()
         self.face.return_to_anchor()
-
-    def actively_listen(self):
-        print("now actively listening")
-        self.actively_listening = True
-        actions = [self.face.nod, self.yes, lambda: self.say("okay")] # TODO others
-
-        def _active_listening_loop():
-            try:
-                while self.actively_listening: 
-                    time.sleep(randint(1, 8))
-                    actions[randint(0, len(actions)-1)]()
-                    self.face.return_to_anchor()
-            except Exception as e:
-                print(e)
-
-        self.do(_active_listening_loop)
 
     def express(self, emotion: Emotion, expression: str=None):
         """Temporarily express an emotion (e.g. reacting during a chat)"""
@@ -125,17 +133,21 @@ class BUDD_E:
 
     def chat(self):
         self.face.return_to_anchor()
+        return_to_gaze = self.face.gazing.is_set()
         self.face.gaze_off()
         self.chatting = True
         neutral_reactions = [self.face.nod, self.yes] 
+
         try:
             while self.chatting:
-                text = input("chat> ")
-
+                text = input(f"chat{[int(v) for v in self.emotion.pad_vector]}> ")
+                if text == "":
+                    continue
                 if text == "end chat":
                     self.chatting = False
                     break
 
+                # TODO move sentiment_analyzer to SpeechProcessor
                 sentiment = self.sentiment_analyzer.polarity_scores(text)
                 print(sentiment)
 
@@ -144,36 +156,39 @@ class BUDD_E:
                         self.laugh()
                     else:
                         self.express(Emotion.SAD) 
+                        self.impart_effect(np.array([0, -1, 0]))
                 elif sentiment["compound"] > 0.05:
                     self.express(Emotion.HAPPY)
-                    self.impart_effect(np.array([10, 7, 0]))
+                    self.impart_effect(np.array([5., 7., 0.]))
                 else:
                     neutral_reactions[randint(0, 1)]()
-                    self.impart_effect(np.array([5, 5, 0]))
+                    self.impart_effect(np.array([5., 5., 0.]))
 
         except Exception as e:
             print(f"chat error: {e}")
             print(traceback.format_exc())
 
-        self.face.gaze_on()
+        if return_to_gaze:
+            self.face.gaze_on()
+
+        self.prev_interaction = datetime.now()
 
     def impart_effect(self, pad_delta: np.ndarray):
         """ Impart an emotional effect on the emotion state, and update the face as needed """
         # Grab current emotion label (to later check if a change happened)
         previous_label = self.emotion_label
-        # Update emotion vector
+        # Update emotion vector 
         self.emotion.update(pad_delta)
-        # Update stored label
-        self.emotion_label = self.emotion.label()
-        # Update face
-        self.face.set_emotion(emotion=self.emotion_label)
+
+        # Update face etc
+        self.set_emotion(emotion_vector=self.emotion.pad_vector)
 
         # "Notify" on emotion label change
         if self.emotion_label != previous_label:
             self.face.return_to_anchor()
-            #self.status()
+            self.status()
 
-    def set_emotion(self, emotion_vector: Optional[np.ndarray]=None, emotion: Optional[Emotion]=None):
+    def set_emotion(self, emotion_vector: Optional[np.ndarray]=None, emotion: Optional[Emotion]=None, force_color=False):
         """ Set the emotion via a vector or label, and update the face as needed """
         # Grab current emotion label (to later check if a change happened)
         previous_label = self.emotion_label
@@ -189,25 +204,86 @@ class BUDD_E:
 
         # Update stored current label
         self.emotion_label = self.emotion.label()
-        # Update face
-        self.face.set_emotion(self.emotion_label)
+        # Update face expression
+        self.face.set_emotion(self.emotion_label, force_color=True)
+        # Set face color based on emotion (interpolate)
+        #self.face.color = self.color_from_emotion()
 
-        # "Notify" on emotion label change
-        # TODO this should happen outside of this function, because this is used in other ways
-        if self.emotion_label != previous_label:
-            self.face.return_to_anchor()
-            #self.status()
+    def color_from_emotion(self):
+        num_to_blend = 3
+        # Get [(Emotion.HAPPY, 123.4), ...] i.e. sorted distances to each emotion
+        emotion_distances = self.emotion.all_points_by_distance()[:num_to_blend]
+        distances = [d[1] for d in emotion_distances]
+        # Colors for each emotion sorted by distance 
+        colors = [EMOTION_COLORS[emotion[0]] for emotion in emotion_distances]
+        # Convert colors to r,g,b,a if not already:
+        colors = [ImageColor.getrgb(color) if isinstance(color, str) else color for color in colors]
+        # Convert distances to weights
+        weights = [1 - (d/sum(distances)) for d in distances]
+        weights[0] *= 2 # double closest emotion weight
+        print(f"{weights=}")
+
+        final_color = [sum(c[i] * w for c, w in zip(colors, weights)) for i in range(len(colors[0]))]
+
+        #return colors[0]
+        return tuple(int(v) for v in final_color)
+
+    def update(self, delta):
+        # Skip EoT during chat
+        if self.chatting:
+            return
+
+        # TODO move this somewhere else,
+        # or implement attractors elsewhere...
+        #if (datetime.now() - self.prev_interaction).total_seconds() > self._boredom_time:
+        #    if self.emotion.pad_vector[2] >= 0:
+        #        print("boredom")
+        #        self.impart_effect(np.array([-10., -40., 0.]))
+        #    else:
+        #        print("lonely")
+        #        self.impart_effect(np.array([-30.0, -20.0, 0.]))
+        #
+        #    self.prev_interaction = datetime.now()
+
+        # Gradually return to disposition over time
+        distances_to_disposition = np.sqrt(np.square(self.emotion.pad_vector - self.disposition)) * np.sign(self.disposition - self.emotion.pad_vector)
+        speeds = np.array([.05, 0.01, .075]) * delta
+        effect_over_time = np.sign(distances_to_disposition * speeds)
+        effect_over_time[np.abs(distances_to_disposition) < effect_over_time] = 0.
+        
+        self.impart_effect(effect_over_time)
+
+        if randint(1, 10) == 5:
+            self.status()
+
 
 def main():
     budd_e = BUDD_E()
     budd_e.start() 
 
-    while True:
-        print(f"{[int(v) for v in budd_e.emotion.pad_vector]}")
-        command = input("> ")
+    def _update_budde_thread():
+        prev = datetime.now()
 
+        while budd_e.running:
+            now = datetime.now()
+            delta = (now - prev).total_seconds()
+            prev = now
+
+            budd_e.update(delta)
+            time.sleep(1)
+
+    Thread(target=_update_budde_thread).start()
+
+    while True: 
+        command = input(f"{[int(v) for v in budd_e.emotion.pad_vector]}> ")
+        if command == "":
+            continue
         if command == "quit":
             break
+        if command.split()[0] == "rotate":
+            angle = int(command.split()[1])
+            budd_e.face.rotation = angle
+            continue
         if command == "explore":
             budd_e.explore()
             continue
@@ -215,6 +291,9 @@ def main():
             budd_e.attention()
             continue
         if command.split()[0] == "emotion":
+            if len(command.split()) == 1:
+                print(budd_e.emotion.label())
+                continue
             label = command.split()[1]
             if label not in Emotion.__members__:
                 print(f"no such emotion {label}")
@@ -226,6 +305,7 @@ def main():
             continue
         if command == "shake":
             budd_e.face.shake()
+            self.say("sad")
             continue
         if command == "nod":
             budd_e.face.nod()
@@ -235,6 +315,9 @@ def main():
             continue
         if command == "no":
             budd_e.no()
+            continue
+        if command == "laugh":
+            budd_e.laugh()
             continue
         if command == "thank you":
             budd_e.thank_you()

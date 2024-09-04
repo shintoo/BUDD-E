@@ -6,13 +6,13 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from random import randint
+import random
 from datetime import datetime
 import numpy as np
 
 import spidev as SPI
 import colorsys
-from PIL import Image,ImageDraw,ImageFont,ImageColor,ImageOps
+from PIL import Image,ImageDraw,ImageFont,ImageColor,ImageOps,ImageEnhance
 
 from .gc9a01 import GC9A01
 from emotion import Emotion
@@ -20,7 +20,7 @@ from emotion import Emotion
 DELTA_TIME_CONSTANT = 18.0
 
 EMOTION_COLORS = {
-    Emotion.HAPPY: "pink",
+    Emotion.HAPPY: "yellow",
     Emotion.EXCITED: "chartreuse",
     Emotion.SAD: "blue",
     Emotion.ANXIOUS: "orange",
@@ -105,8 +105,10 @@ class Face(threading.Thread):
         self.target = None
         self.scaling = False
         self.background = Image.open("assets/bg.png").convert("L")
+        self.intensity = 1.0
         self._blink_opening = False
         self._blink_closing = False
+        self.rotation = 0
         self.defaults = {
             "eye_height": eye_height,
             "eye_width": eye_width,
@@ -128,21 +130,28 @@ class Face(threading.Thread):
 
     def render(self):
         self.clear()
-#        self.__draw_background()
         self._draw_eyes()
         self._draw_mouth()
         self._draw_extras() 
 
+        # Make black areas of face transparent
         data = np.array(self.image)
         r, g, b, a = data.T
         black_areas = (r == 0) & (g == 0) & (b == 0) & (a == 255)
         data[...][black_areas.T] = (0, 0, 0, 0)
 
+        # Draw background and then face on top
         face = Image.fromarray(data)
-        self.__draw_background()
+        self._draw_background()
         self.image.paste(face, (0, 0), face)
+        if self.rotation:
+            self.display.ShowImage(self.image.rotate(self.rotation))
+        else:
+            self.display.ShowImage(self.image)
 
-        self.display.ShowImage(self.image)
+    def set_color(self, color):
+        """Color can be a CSS color string or (r, g, b, a)"""
+        self.color = color
 
     def _draw_extras(self):
         match self.emotion:
@@ -161,10 +170,17 @@ class Face(threading.Thread):
         match [self.emotion, self.expression]:
             case Emotion.BORED | Emotion.TIRED, _:
                 self.draw.line(((left, top+10), (right, top+10)), fill=self.color, width=6)
-            case Emotion.MAD | Emotion.SAD, _:
+            case Emotion.MAD | Emotion.SAD | Emotion.ANXIOUS, _:
                 self.draw.arc(((left, top), (right, bottom)), start=180, end=0, fill=self.color, width=6)
-            case Emotion.SLEEPY | Emotion.SURPRISED | Emotion.SCARED, _:
+            case Emotion.SLEEPY | Emotion.SCARED, _:
                 self.draw.circle((x, top), radius=6, fill=self.color)
+            case Emotion.SURPRISED, _:
+                self.draw.circle((x, top+5), radius=10, fill=self.color)
+            case Emotion.EXCITED, _:
+                self.draw.arc(((left+3, top), (right-3, bottom+10)), start=0, end=180, fill=self.color, width=6)
+                self.draw.arc(((left+3, top+8), (right-3, top+20)), start=180, end=360, fill=self.color, width=6)
+                self.draw.circle((left+(right-left)/2, top+(bottom-top+10)/2+4), radius=9, fill=self.color)
+                #self.draw.line(((left, top+12), (right, top+12)), fill=self.color, width=6)
             case _, "laughing":
                 self.draw.arc(((left, top), (right, bottom)), start=0, end=180, fill=self.color, width=6)
                 self.draw.line(((left, top+12), (right, top+12)), fill=self.color, width=6)
@@ -175,6 +191,9 @@ class Face(threading.Thread):
         # xy is center of eye, but rounded_rectangle takes top left and bottom right corners
         hw = self.eye_width / 2
         hh = self.eye_height / 2
+
+        if self.emotion == Emotion.SURPRISED:
+            scale = 1.333
 
         extra_height = (hh * scale) - hh
 
@@ -187,7 +206,9 @@ class Face(threading.Thread):
         self.draw.rounded_rectangle(((x1, y1), (x2, y2)), self.radius, fill=self.color)
 
         match self.emotion:
-            case Emotion.HAPPY | Emotion.EXCITED:
+            case Emotion.HAPPY:
+                self.draw.circle((x, y2+110), 120, fill="black")
+            case Emotion.EXCITED:
                 self.draw.circle((x, y2+50), 70, fill="black")
             case Emotion.MAD:
                 self.draw.circle((x+10 if side == "left" else x-10, y1-20), 50, fill="black")
@@ -201,8 +222,9 @@ class Face(threading.Thread):
                 self.draw.circle((x, y1-20), 70, fill="black")
             case Emotion.TIRED:
                 self.draw.circle((x, y1-35), 70, fill="black")
-            case Emotion.SURPRISED: # TODO
-                pass
+            case Emotion.ANXIOUS:
+                self.draw.circle((x-15 if side == "left" else x+15, y1-60), 70, fill="black")
+                self.draw.circle((x, y2+60), 70, fill="black")
         match self.expression:
             case "no":
                 self.draw.rectangle(((x1, y1-10), (x2, y1+5)), fill="black")
@@ -264,7 +286,7 @@ class Face(threading.Thread):
             self.move_to_relative(0, 20)
             while self.target:
                 time.sleep(0.1)
-            self.move_to(*origin)
+            self.move_to(*origin, speed=3)
         self._submit(_nod)
 
     def _submit(self, task):
@@ -279,10 +301,12 @@ class Face(threading.Thread):
             self.move_to(origin[0]-10, origin[1])
             while self.target:
                 time.sleep(0.05)
+            time.sleep(0.15)
             self.move_to(origin[0]+10, origin[1])
             while self.target:
                 time.sleep(0.05)
-            self.move_to(origin[0]-10, origin[1])
+            time.sleep(0.15)
+            self.move_to(origin[0]-15, origin[1])
             while self.target:
                 time.sleep(0.05)
             self.expression = "neutral"
@@ -344,10 +368,16 @@ class Face(threading.Thread):
             return True
 
     def random_within_bounds(self):
-        return [randint(self.LOWER_BOUND_X, self.UPPER_BOUND_X), randint(self.LOWER_BOUND_Y, self.UPPER_BOUND_Y)]
+        return [random.randint(self.LOWER_BOUND_X, self.UPPER_BOUND_X), random.randint(self.LOWER_BOUND_Y, self.UPPER_BOUND_Y)]
 
-    def set_emotion(self, emotion: str):
+
+
+    def set_emotion(self, emotion: str, force_color=False):
         self.emotion = emotion
+
+        if not force_color:
+           return
+
         if emotion == Emotion.NEUTRAL:
             self.color = self.defaults["color"]
         else:
@@ -378,8 +408,8 @@ class Face(threading.Thread):
 
         def _gaze_on():
             while self.gazing.is_set():
-                self.move_to(*self.random_within_bounds(), speed=randint(5, 10))
-                time.sleep(randint(3, 8))
+                self.move_to(*self.random_within_bounds(), speed=random.randint(5, 10))
+                time.sleep(random.randint(3, 8))
 
         self._submit(_gaze_on)
 
@@ -387,7 +417,7 @@ class Face(threading.Thread):
         self.gazing.clear()
 
     def update(self, delta):
-        if randint(1, 120) == 2:
+        if random.randint(1, 120) == 2:
             self.blink()
         if self.blinking:
             self._update_blink(delta)
@@ -442,9 +472,33 @@ class Face(threading.Thread):
 
             prev = now
 
-    def __draw_background(self):
-        bg = ImageOps.colorize(self.background, black="black", mid=self.color, white=self.color)
+    def _draw_background(self):
+        bg = ImageOps.colorize(self.background, black="black", mid=self.color, white=self.color)  
+        enhancer = ImageEnhance.Brightness(bg)
+        bg = enhancer.enhance(self.intensity)
         self.image.paste(bg, (0, 0)) 
+
+    def vary_intensity(self, intensities):
+        """intensities is a lits of 2 int tuples, where the first is a brightness factor, and the second is a duration"""
+        def _vary():
+            try:
+                for intensity, duration in intensities:
+                    if intensity == 0:
+                        self.intensity = 1.05
+                    else:
+                        # scale intensity to pitch etc
+                        self.intensity = intensity
+
+                        # Random positive intensity
+                        #self.intensity = random.uniform(1.1, 1.5)
+
+                    time.sleep(duration)
+            except:
+                print(traceback.format_exc())
+            self.intensity = 1.0
+
+        self._submit(_vary)
+
         
 if __name__ == "__main__":
     face = Face(color="teal", eye_height=40, eye_width=40)
@@ -462,6 +516,6 @@ if __name__ == "__main__":
     try:
         while True:
             face.move_to(*face.random_within_bounds())
-            time.sleep(randint(3, 5))
+            time.sleep(random.randint(3, 5))
     except KeyboardInterrupt:
         face.stop()

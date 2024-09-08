@@ -15,11 +15,12 @@ import voice
 from speech import SpeechProcessor
 from face import Face, EMOTION_COLORS
 from emotion import Emotion, EmotionState
-
+from wheels import Wheels
 
 class BUDD_E:
     def __init__(self, color="teal"):
         self.face = Face(color=color)
+        self.wheels = Wheels(4, 17, 13, 24, 16, 12) # todo get these from a config file? and do same for tft pins?
         self.sp = SpeechProcessor("./speech/model.pkl")
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.emotion = EmotionState()
@@ -88,7 +89,7 @@ class BUDD_E:
         self.face.laugh()
 
     def explore(self):
-        self.face.gaze_on()
+        self.face.gaze_on() 
 
     # TODO update to match self.emotion
     def status(self):
@@ -343,12 +344,24 @@ def main():
 
         if intent == "forward":
             budd_e.face.look("down")
+            budd_e.wheels.forward()
+            time.sleep(1)
+            budd_e.wheels.stop()
         if intent == "reverse":
             budd_e.face.look("up")
+            budd_e.wheels.backward()
+            time.sleep(1)
+            budd_e.wheels.stop()
         if intent == "turn" and modifiers.get("direction", "") == "CW":
             budd_e.face.look("right")
+            budd_e.wheels.right()
+            time.sleep(0.5)
+            budd_e.wheels.stop()
         if intent == "turn" and modifiers.get("direction", "") == "CCW":
             budd_e.face.look("left")
+            budd_e.wheels.left()
+            time.sleep(0.5)
+            budd_e.wheels.stop()
         if intent == "conv_status":
             budd_e.status()
 

@@ -8,13 +8,13 @@ class Wheels:
         self.right_motor = Motor(forward=right_1, backward=right_2)
         self.right_speed = PWMOutputDevice(right_pwm)
 
-    def left(self, speed=1.0):  
+    def left(self, speed=0.75):  
         self.left_speed.value = speed
         self.right_speed.value = speed
         self.left_motor.forward()
         self.right_motor.backward()
 
-    def right(self, speed=1.0):
+    def right(self, speed=0.75):
         self.left_speed.value = speed
         self.right_speed.value = speed
         self.left_motor.backward()

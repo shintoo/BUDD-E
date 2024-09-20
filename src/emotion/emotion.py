@@ -18,14 +18,17 @@ class Emotion(Enum):
 
 class EmotionState:
     def __init__(self, initial_state: np.ndarray = np.array([0., 0., 0.])):
-        self.pad_vector = initial_state
+        self.pad_vector = initial_state.copy()
+        self._previous = initial_state.copy()
 
     def update(self, delta: np.ndarray): 
+        self._previous = self.pad_vector.copy()
         self.pad_vector += delta
         self.pad_vector[self.pad_vector > 100.0] = 100.0
         self.pad_vector[self.pad_vector < -100.0] = -100.0
   
     def set_from_label(self, emotion: Emotion):
+        self._previous = self.pad_vector.copy()
         self.pad_vector = np.array(emotion.value)
 
     def all_points_by_distance(self):
@@ -45,6 +48,9 @@ class EmotionState:
     def intensity(self):
         # Normalize to percentage (173 is distance from 0,0,0 at 100,100,100)
         return np.sqrt(np.sum(np.square(self.pad_vector))) / 173
+
+    def previous(self):
+        return self._previous
 
 if __name__ == "__main__":
     es = EmotionState()

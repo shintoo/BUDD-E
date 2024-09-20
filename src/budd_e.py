@@ -1,4 +1,5 @@
 import time
+import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import math
@@ -10,17 +11,25 @@ from typing import Optional
 import numpy as np
 from PIL import ImageColor
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import uvicorn
 
 import voice
 from speech import SpeechProcessor
 from face import Face, EMOTION_COLORS
+from head import Head
 from emotion import Emotion, EmotionState
 from wheels import Wheels
+from server import server
+from battery import Battery
+from camera import Camera
 
 class BUDD_E:
     def __init__(self, color="teal"):
+        self.head = Head(servo_pin=23)
         self.face = Face(color=color)
-        self.wheels = Wheels(4, 17, 13, 24, 16, 12) # todo get these from a config file? and do same for tft pins?
+        self.wheels = Wheels(4, 17, 13, 16, 24, 12) # todo get these from a config file? and do same for tft pins?
+        self.battery = Battery()
+        self.camera = Camera()
         self.sp = SpeechProcessor("./speech/model.pkl")
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.emotion = EmotionState()
@@ -33,6 +42,20 @@ class BUDD_E:
         self.chatting = False
         self.running = False
 
+        server.state.robot = self
+        config = uvicorn.Config(server, host="0.0.0.0", port=8000)
+        self.server = uvicorn.Server(config)
+        
+        #logging.getLogger("uvicorn.error").handlers = []
+        #logging.getLogger("uvicorn.error").propagate = False
+    
+        #logging.getLogger("uvicorn.access").handlers = []
+        #logging.getLogger("uvicorn.access").propagate = False
+    
+        #logging.getLogger("uvicorn.asgi").handlers = []
+        #logging.getLogger("uvicorn.asgi").propagate = True
+    
+
         # TODO put this somewhere nicer. Neutral is colored "at runtime" at the moment.
         EMOTION_COLORS[self.emotion.label()] = color
 
@@ -41,9 +64,14 @@ class BUDD_E:
         self.say("hello")
         self.running = True
 
+        server_thread = Thread(target=self.server.run)
+        server_thread.start() 
+
     def _terminate(self):
         self.threadpoolexecutor.shutdown()
         self.face.stop()
+        self.head.cleanup()
+
 
     def quit(self):
         self.set_emotion(emotion=Emotion.NEUTRAL)
@@ -74,7 +102,8 @@ class BUDD_E:
 
     def yes(self):
         self.say("yes")
-        self.do(self.face.nod)
+        self.face.nod()
+        self.head.nod()
 
     def no(self):
         self.say("no")
@@ -92,7 +121,7 @@ class BUDD_E:
         self.face.gaze_on() 
 
     # TODO update to match self.emotion
-    def status(self):
+    def express_status(self):
         match self.emotion_label:
             case Emotion.HAPPY:
                 self.say("happy")
@@ -126,7 +155,7 @@ class BUDD_E:
         saved_expression = self.face.expression # usually None
         self.set_emotion(emotion=emotion)
         self.face.expression = expression
-        self.status()
+        self.express_status()
         time.sleep(1)
         self.set_emotion(emotion_vector=saved_emotion)
         self.face.expression = saved_expression
@@ -187,7 +216,7 @@ class BUDD_E:
         # "Notify" on emotion label change
         if self.emotion_label != previous_label:
             self.face.return_to_anchor()
-            self.status()
+            self.express_status()
 
     def set_emotion(self, emotion_vector: Optional[np.ndarray]=None, emotion: Optional[Emotion]=None, force_color=False):
         """ Set the emotion via a vector or label, and update the face as needed """
@@ -229,10 +258,61 @@ class BUDD_E:
         #return colors[0]
         return tuple(int(v) for v in final_color)
 
+    def process_command(self, command: str):
+        if command == "yes":
+            self.face.nod()
+            self.head.nod()
+            return
+
+        intent, modifiers = self.sp.process(command)
+
+        if intent == "forward":
+            self.face.look("down")
+            self.wheels.forward()
+            time.sleep(1)
+            self.wheels.stop()
+        if intent == "reverse":
+            self.face.look("up")
+            self.wheels.backward()
+            time.sleep(1)
+            self.wheels.stop()
+        if intent == "turn" and modifiers.get("direction", "") == "CW":
+            self.face.look("right")
+            self.wheels.right()
+            time.sleep(0.5)
+            self.wheels.stop()
+        if intent == "turn" and modifiers.get("direction", "") == "CCW":
+            self.face.look("left")
+            self.wheels.left()
+            time.sleep(0.5)
+            self.wheels.stop()
+        if intent == "conv_status":
+            self.express_status()
+
+    def status(self):
+        return {
+            "emotion": {
+                "vector": list(self.emotion.pad_vector),
+                "label": self.emotion.label().name,
+                "previous": list(self.emotion.previous()),
+            },
+            "battery": {
+                "percentage": self.battery.percentage(),
+                "charging": self.battery.is_charging()
+            }
+        }
+
     def update(self, delta):
         # Skip EoT during chat
         if self.chatting:
             return
+
+        # Check for commands
+        if not server.state.queue.empty():
+            cmd = server.state.queue.get_nowait()
+            print(f"BUDD_E got command: {cmd}")
+            self.process_command(cmd)
+
 
         # TODO move this somewhere else,
         # or implement attractors elsewhere...
@@ -254,7 +334,7 @@ class BUDD_E:
         
         self.impart_effect(effect_over_time)
 
-        if randint(1, 10) == 5:
+        if randint(1, 30) == 5:
             self.status()
 
 

@@ -1,1 +1,3 @@
-BUDD-E (name subject to change)
+robot
+
+![screenshot of model](img/model.png)

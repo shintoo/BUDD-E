@@ -13,7 +13,7 @@ class Battery:
 
             return percentage
         except:
-            return "N/A"
+            return 100.0
 
     def is_charging(self):
         try:

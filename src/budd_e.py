@@ -21,7 +21,7 @@ from emotion import Emotion, EmotionState
 from wheels import Wheels
 from server import server
 from battery import Battery
-from camera import Camera
+#from camera import Camera
 
 class BUDD_E:
     def __init__(self, color="teal"):
@@ -29,7 +29,7 @@ class BUDD_E:
         self.face = Face(color=color)
         self.wheels = Wheels(4, 17, 13, 16, 24, 12) # todo get these from a config file? and do same for tft pins?
         self.battery = Battery()
-        self.camera = Camera()
+        #self.camera = Camera()
         self.sp = SpeechProcessor("./speech/model.pkl")
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.emotion = EmotionState()
@@ -45,16 +45,16 @@ class BUDD_E:
         server.state.robot = self
         config = uvicorn.Config(server, host="0.0.0.0", port=8000)
         self.server = uvicorn.Server(config)
-        
+
         #logging.getLogger("uvicorn.error").handlers = []
         #logging.getLogger("uvicorn.error").propagate = False
-    
+
         #logging.getLogger("uvicorn.access").handlers = []
         #logging.getLogger("uvicorn.access").propagate = False
-    
+
         #logging.getLogger("uvicorn.asgi").handlers = []
         #logging.getLogger("uvicorn.asgi").propagate = True
-    
+
 
         # TODO put this somewhere nicer. Neutral is colored "at runtime" at the moment.
         EMOTION_COLORS[self.emotion.label()] = color
@@ -65,7 +65,7 @@ class BUDD_E:
         self.running = True
 
         server_thread = Thread(target=self.server.run)
-        server_thread.start() 
+        server_thread.start()
 
     def _terminate(self):
         self.threadpoolexecutor.shutdown()
@@ -91,13 +91,13 @@ class BUDD_E:
         if not word in voice.words:
             print(f"say: invalid word: {word}")
             word = "okay"
-        self.do(lambda: voice.say(word)) 
+        self.do(lambda: voice.say(word))
         intensities = [((tone-1500, dur)) for tone, dur in voice.words[word]]
 
         slope = (1.5 - 1.1) / (2100 - 750)
         intensity = lambda tone: 1.1 + slope * (tone - 750)
         intensities = [(intensity(tone), duration) for tone, duration in voice.words[word]]
-        
+
         self.face.vary_intensity(intensities)
 
     def yes(self):
@@ -118,7 +118,7 @@ class BUDD_E:
         self.face.laugh()
 
     def explore(self):
-        self.face.gaze_on() 
+        self.face.gaze_on()
 
     # TODO update to match self.emotion
     def express_status(self):
@@ -166,7 +166,7 @@ class BUDD_E:
         return_to_gaze = self.face.gazing.is_set()
         self.face.gaze_off()
         self.chatting = True
-        neutral_reactions = [self.face.nod, self.yes] 
+        neutral_reactions = [self.face.nod, self.yes]
 
         try:
             while self.chatting:
@@ -185,7 +185,7 @@ class BUDD_E:
                     if self.emotion_label == Emotion.MAD:
                         self.laugh()
                     else:
-                        self.express(Emotion.SAD) 
+                        self.express(Emotion.SAD)
                         self.impart_effect(np.array([0, -1, 0]))
                 elif sentiment["compound"] > 0.05:
                     self.express(Emotion.HAPPY)
@@ -207,7 +207,7 @@ class BUDD_E:
         """ Impart an emotional effect on the emotion state, and update the face as needed """
         # Grab current emotion label (to later check if a change happened)
         previous_label = self.emotion_label
-        # Update emotion vector 
+        # Update emotion vector
         self.emotion.update(pad_delta)
 
         # Update face etc
@@ -244,7 +244,7 @@ class BUDD_E:
         # Get [(Emotion.HAPPY, 123.4), ...] i.e. sorted distances to each emotion
         emotion_distances = self.emotion.all_points_by_distance()[:num_to_blend]
         distances = [d[1] for d in emotion_distances]
-        # Colors for each emotion sorted by distance 
+        # Colors for each emotion sorted by distance
         colors = [EMOTION_COLORS[emotion[0]] for emotion in emotion_distances]
         # Convert colors to r,g,b,a if not already:
         colors = [ImageColor.getrgb(color) if isinstance(color, str) else color for color in colors]
@@ -263,6 +263,17 @@ class BUDD_E:
             self.face.nod()
             self.head.nod()
             return
+
+        if command.split()[0] == "emotion":
+            if len(command.split()) == 1:
+                print(self.emotion.label())
+            label = command.split()[1].upper()
+            if label not in Emotion.__members__:
+                print(f"no such emotion {label}")
+                return
+
+            self.set_emotion(emotion=Emotion[label])
+            self.express_status()
 
         intent, modifiers = self.sp.process(command)
 
@@ -313,7 +324,6 @@ class BUDD_E:
             print(f"BUDD_E got command: {cmd}")
             self.process_command(cmd)
 
-
         # TODO move this somewhere else,
         # or implement attractors elsewhere...
         #if (datetime.now() - self.prev_interaction).total_seconds() > self._boredom_time:
@@ -331,16 +341,16 @@ class BUDD_E:
         speeds = np.array([.05, 0.01, .075]) * delta
         effect_over_time = np.sign(distances_to_disposition * speeds)
         effect_over_time[np.abs(distances_to_disposition) < effect_over_time] = 0.
-        
+
         self.impart_effect(effect_over_time)
 
         if randint(1, 30) == 5:
-            self.status()
+            self.express_status()
 
 
 def main():
     budd_e = BUDD_E()
-    budd_e.start() 
+    budd_e.start()
 
     def _update_budde_thread():
         prev = datetime.now()
@@ -355,7 +365,7 @@ def main():
 
     Thread(target=_update_budde_thread).start()
 
-    while True: 
+    while True:
         command = input(f"{[int(v) for v in budd_e.emotion.pad_vector]}> ")
         if command == "":
             continue
@@ -375,11 +385,12 @@ def main():
             if len(command.split()) == 1:
                 print(budd_e.emotion.label())
                 continue
-            label = command.split()[1]
+            label = command.split()[1].upper()
             if label not in Emotion.__members__:
                 print(f"no such emotion {label}")
                 continue
             budd_e.set_emotion(emotion=Emotion[label])
+            budd_e.express_status()
             continue
         if command.split()[0] == "color":
             budd_e.face.color = command.split()[1]
@@ -413,7 +424,7 @@ def main():
             print(f"new PAD:      {budd_e.emotion.pad_vector}")
             continue
         if command == "status":
-            budd_e.status()
+            budd_e.express_status()
             continue
 
         if command == "chat":
@@ -443,7 +454,7 @@ def main():
             time.sleep(0.5)
             budd_e.wheels.stop()
         if intent == "conv_status":
-            budd_e.status()
+            budd_e.express_status()
 
         print(intent, modifiers)
 
@@ -451,4 +462,11 @@ def main():
     time.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"Got error starting BUDD-E: {e}. Is pigpiod started? ('sudo pigpiod').")
+        input(f"[enter to show traceback]> ")
+        traceback.print_exc()
+
+

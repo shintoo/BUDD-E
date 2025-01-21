@@ -1,0 +1,94 @@
+body {
+  font-family: 'Arial', sans-serif;
+  background-color: black;
+  color: #ADC6F0;
+  text-align: center;
+  margin: 0;
+  padding: 0;
+ext-transform: uppercase;
+}
+
+h1 {
+  margin: 20px 0;
+  font-size: 24px;
+  color: #ADC6F0;
+  text-transform: uppercase;
+}
+
+.dashboard {
+  min-height: 60vh;
+  max-height: 80vh;
+  padding: 10px;
+  margin: 5vw; 
+  border: 2px solid #ADC6F0;
+  border-radius: 10px;
+  box-shadow: 0 0 10px 0 #ADC6F0;
+  display: flex; 
+  flex-wrap: wrap;
+}
+
+.controls, .camera, .pad-graph, .status {
+  margin: 20px;
+  background-color: black;
+}
+
+.controls {
+  width: 90%;
+  max-width: 600px;
+}
+
+.controls button {
+  font-size: 18px;
+  margin: 5px;
+  padding: 10px 20px;
+  background-color: black;
+  color: #ADC6F0;
+  cursor: pointer;
+  text-transform: uppercase;
+  border: 2px solid #ADC6F0;
+}
+
+.controls button:hover {
+  box-shadow: 0 0 10px 0 #ADC6F0;;
+}
+
+.camera {
+  width: 90%;
+  max-width: 600px;
+}
+
+.camera img {
+  width: 100%; 
+  border-radius: 20px 0;
+  
+}
+
+.pad-graph {
+  width: 90%;
+  max-width: 600px;
+}
+
+#padCanvas {
+  width: 100%;
+  max-width: 400px;
+  height: 300px;
+  background-color: black;
+  border-radius: 10px;
+order: 2px solid #ADC6F0;
+ox-shadow: inset 0 0 10px #ADC6F0;
+}
+
+.status p {
+  font-size: 18px;
+  margin: 10px 0;
+}
+
+#battery-level {
+  color: #2ecc71;
+}
+
+.mood {
+  font-size: 20px;
+  font-weight: bold;
+  color: #3498db;
+}

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUDD-E Dashboard</title>
+  <link rel="stylesheet" href="static/main.css"> 
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Controls Section -->
+    <div class="controls">
+      <h2>Controls</h2>
+      <button id="move-forward" onclick="sendCommand('move forward')" >^</button>
+      <div>
+        <button id="turn-left" onclick="sendCommand('turn left')" >&lt;</button>
+        <button id="turn-right" onclick="sendCommand('turn right')" >&gt;</button>
+      </div>
+      <button id="move-backward" onclick="sendCommand('move backward')" >v</button>
+    </div>
+
+    <!-- Camera Section -->
+    <div class="camera">
+      <h2>Camera Feed</h2>
+      <img src="http://10.0.0.55:7123/stream.mjpg" alt="Camera Feed" id="camera-feed">
+    </div>
+
+    <!-- PAD Graph Section -->
+    <div class="pad-graph">
+      <h2>PAD</h2>
+      <canvas width="400" height="300" id="padCanvas"></canvas>
+      <button id="show-emotions" onclick="toggleEmotions()">set emotion</button>
+      <div id="emotions" style="display: none;">
+        <button id="happy" onclick="sendCommand('emotion happy')" >happy</button>
+        <button id="excited" onclick="sendCommand('emotion excited')" >excited</button>
+        <button id="sad" onclick="sendCommand('emotion sad')" >sad</button>
+        <button id="anxious" onclick="sendCommand('emotion anxious')" >anxious</button>
+        <button id="mad" onclick="sendCommand('emotion mad')" >mad</button>
+        <button id="sleepy" onclick="sendCommand('emotion sleepy')" >sleepy</button>
+        <button id="tired" onclick="sendCommand('emotion tired')" >tired</button>
+        <button id="relaxed" onclick="sendCommand('emotion relaxed')" >relaxed</button>
+        <button id="neutral" onclick="sendCommand('emotion neutral')" >neutral</button>
+        <button id="scared" onclick="sendCommand('emotion scared')" >scared</button>
+        <button id="surprised" onclick="sendCommand('emotion surprised')" >surprised</button>
+        <button id="bored" onclick="sendCommand('emotion bored')" >bored</button>
+        <button id="cancel" onclick="toggleEmotions()">cancel</button>
+      </div>
+    </div>
+
+    <!-- Status Section -->
+    <div class="status">
+      <p><span id="battery-level">100%</span></p>
+      <p><span id="current-mood" class="mood">Neutral</span></p>
+    </div>
+  </div>
+
+  <script> 
+	function sendCommand(action) { 
+      fetch('http://10.0.0.55:8000/control', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ command: action })
+      }).then(response => response.json())
+        .then(data => console.log('Success:', data))
+        .catch((error) => console.error('Error:', error));
+	}
+
+  function toggleEmotions() {
+    var emotionsPanel = document.getElementById('emotions')
+    if (emotionsPanel.style.display === "none") {
+      emotionsPanel.style.display = "block"
+    } else {
+      emotionsPanel.style.display = "none"
+    }
+  }
+
+	const init = () => {
+      setInterval(function() {
+      const batteryLevel = document.getElementById('battery-level');
+      const moodElement = document.getElementById('current-mood');
+      const padCanvas = document.getElementById('padCanvas');
+      const ctx = padCanvas.getContext('2d');
+
+	  fetch("http://10.0.0.55:8000/status")
+		.then(resp => resp.json())
+	  	.then(json => {
+          batteryLevel.textContent = json["battery"]["percentage"] + '%';
+          moodElement.textContent = json["emotion"]["label"];;
+    
+          function drawPADGraph(padData, padDataPrev) {
+            const [ P, A, D ] = padData;
+            const x = P * padCanvas.width / 220
+            const y = A * padCanvas.height / 220
+
+            const [ Pp, Ap, Dp ] = padDataPrev;
+            const xp = Pp * padCanvas.width / 220;
+            const yp = Ap * padCanvas.height / 220;
+       
+            ctx.clearRect(0, 0, padCanvas.width, padCanvas.height);
+
+            // Draw axes
+            ctx.strokeStyle = "#ADC6F0";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+
+            ctx.moveTo(padCanvas.width / 2, 0);
+            ctx.lineTo(padCanvas.width / 2, padCanvas.height);
+            ctx.moveTo(0, padCanvas.height / 2);
+            ctx.lineTo(padCanvas.width, padCanvas.height / 2);
+
+            ctx.stroke();
+
+            // Draw previous
+            ctx.lineWidth = 2
+            ctx.beginPath();
+            ctx.strokeStyle = `rgb(80, 80, 80)`;
+            ctx.arc(padCanvas.width / 2 + xp, padCanvas.height / 2 - yp, 20, 0, Math.PI * 2);
+            ctx.stroke()
+
+            // Draw current
+            ctx.beginPath()
+            ctx.strokeStyle = `rgb(${105 + D}, ${115 + D}, ${155 + D})`;  // Example color logic for D
+            ctx.arc(padCanvas.width / 2 + x, padCanvas.height / 2 - y, 20, 0, Math.PI * 2);
+            ctx.stroke(); 
+
+            ctx.beginPath()
+          } 
+          drawPADGraph(json["emotion"]["vector"], json["emotion"]["previous"]);
+    	})
+	  }, 2000);
+	}
+	if (document.readyState !== 'loading') {
+      init();
+  } else {
+      document.addEventListener('DOMContentLoaded', init)
+  }
+  </script>
+</body>
+</html>
+

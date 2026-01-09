@@ -86,8 +86,11 @@
 	  fetch("http://10.0.0.55:8000/status")
 		.then(resp => resp.json())
 	  	.then(json => {
-          batteryLevel.textContent = json["battery"]["percentage"] + '%';
-          moodElement.textContent = json["emotion"]["label"];;
+			if (json["model"] == "big") {
+          			batteryLevel.textContent = json["battery"]["percentage"] + '%';
+			}
+          		moodElement.textContent = json["emotion"]["label"];
+	  })
     
           function drawPADGraph(padData, padDataPrev) {
             const [ P, A, D ] = padData;

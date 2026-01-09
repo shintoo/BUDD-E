@@ -235,6 +235,8 @@ class Face(threading.Thread):
         # xy is center of face
         x, y = self.position
 
+        y += 10
+
         hd = self.distance / 2 + self.eye_width / 2
         scale_left = 1
         scale_right = 1
@@ -501,8 +503,14 @@ class Face(threading.Thread):
 
         
 if __name__ == "__main__":
-    face = Face(color="teal", eye_height=40, eye_width=40)
+    face = Face(color="seagreen", eye_height=40, eye_width=40)
     face.start()
+
+    while True:
+        width, height, distance = list(map(int, input("[w h d]> ").split(" ")))
+        face.stop()
+        face = Face(color="seagreen", eye_height=height, eye_width=width, distance=distance)
+        face.start()
 
     # Margin test
     face.look("left")

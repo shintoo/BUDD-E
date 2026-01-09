@@ -24,13 +24,14 @@ from battery import Battery
 #from camera import Camera
 
 class BUDD_E:
-    def __init__(self, color="teal"):
+    LIL = "lil"
+    BIG = "BIG"
+
+    def __init__(self, color="seagreen", model=BIG):
+        self.model = model
         self.head = Head(servo_pin=23)
-        self.face = Face(color=color)
-        self.wheels = Wheels(4, 17, 13, 16, 24, 12) # todo get these from a config file? and do same for tft pins?
-        self.battery = Battery()
-        #self.camera = Camera()
-        self.sp = SpeechProcessor("./speech/model.pkl")
+        self.face = Face(color=color, eye_height=60 if self.model == self.BIG else 50, eye_width=40 if self.model == self.BIG else 50, distance=60 if self.model == self.BIG else 80, radius=12 if self.model == self.BIG else 20)
+        #self.camera = Camera() 
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.emotion = EmotionState()
         self.disposition = np.array([15., 5., 10.])
@@ -41,6 +42,11 @@ class BUDD_E:
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
         self.chatting = False
         self.running = False
+
+        if self.model == BUDD_E.BIG:
+            self.wheels = Wheels(4, 17, 13, 16, 24, 12) # todo get these from a config file? and do same for tft pins?
+            self.battery = Battery()
+            self.sp = SpeechProcessor("./speech/model.pkl")
 
         server.state.robot = self
         config = uvicorn.Config(server, host="0.0.0.0", port=8000)
@@ -277,6 +283,12 @@ class BUDD_E:
 
         intent, modifiers = self.sp.process(command)
 
+        if intent == "conv_status":
+            self.express_status()
+
+        if self.model == BUDDE.LIL:
+            return
+
         if intent == "forward":
             self.face.look("down")
             self.wheels.forward()
@@ -297,21 +309,26 @@ class BUDD_E:
             self.wheels.left()
             time.sleep(0.5)
             self.wheels.stop()
-        if intent == "conv_status":
-            self.express_status()
 
     def status(self):
-        return {
+        status = {
+            "model": self.model,
             "emotion": {
                 "vector": list(self.emotion.pad_vector),
                 "label": self.emotion.label().name,
                 "previous": list(self.emotion.previous()),
-            },
-            "battery": {
-                "percentage": self.battery.percentage(),
-                "charging": self.battery.is_charging()
             }
         }
+
+        if self.model == BUDD_E.LIL:
+            return status
+
+        status["battery"] = {
+            "percentage": self.battery.percentage(),
+            "charging": self.battery.is_charging()
+        }
+
+        return status
 
     def update(self, delta):
         # Skip EoT during chat
@@ -348,8 +365,8 @@ class BUDD_E:
             self.express_status()
 
 
-def main():
-    budd_e = BUDD_E()
+def main(model):
+    budd_e = BUDD_E(model=BUDD_E.LIL if model == "lil" else BUDD_E.BIG)
     budd_e.start()
 
     def _update_budde_thread():
@@ -433,6 +450,11 @@ def main():
 
         intent, modifiers = budd_e.sp.process(command)
 
+        if budd_e.model == "lil":
+            continue
+        
+        ## Big budd-e (aka budd-e) -only features below
+
         if intent == "forward":
             budd_e.face.look("down")
             budd_e.wheels.forward()
@@ -463,7 +485,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        main("lil")
     except Exception as e:
         print(f"Got error starting BUDD-E: {e}. Is pigpiod started? ('sudo pigpiod').")
         input(f"[enter to show traceback]> ")

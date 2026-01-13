@@ -35,6 +35,7 @@ class BUDD_E:
         self.face = Face(tpe=self.threadpoolexecutor, color=color, rotation=0 if big else 270, eye_height=60 if big else 50, eye_width=40 if big else 50, distance=60 if big else 80, radius=12 if big else 20)
         #self.camera = Camera() # todo; have picam3 wide for budd-e, need a cam for lil budd-e...
         self.emotion = EmotionState()
+        self.emotion_regulator = EmotionRegulator.from_archive("regulator-archives/v0")
         self.disposition = np.array([15., 5., 10.])
         self._boredom_time = 10.0
         self.prev_interaction = datetime.now()
@@ -367,6 +368,16 @@ class BUDD_E:
         if randint(1, 30) == 5:
             self.express_status()
 
+    def update_with_regulator(self, delta):
+        if self.chatting:
+            return
+
+        if not server.state.queue.empty():
+            cmd = server.state.queue.get_nowait()
+            self.process_command(cmd)
+
+        pad_delta = self.emotion_regulator.next_delta(self.emotion)
+        self.impart_effect(pad_delta)
 
 def main(model):
     budd_e = BUDD_E(model=BUDD_E.LIL if model == "lil" else BUDD_E.BIG)

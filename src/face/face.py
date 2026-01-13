@@ -81,7 +81,7 @@ def rounded_rectangle(self: ImageDraw, xy, corner_radius=0, fill=None, outline=N
 ImageDraw.rounded_rectangle = rounded_rectangle
 
 class Face(threading.Thread):
-    def __init__(self, emotion=Emotion.NEUTRAL, eye_width=40, eye_height=60, distance=60, radius=12, color="lightseagreen", anchor=[120, 120]):
+    def __init__(self, emotion=Emotion.NEUTRAL, eye_width=40, eye_height=60, distance=60, radius=12, color="lightseagreen", rotation=0, anchor=[120, 120], tpe=None):
         super().__init__()
         self.emotion = emotion
         self.expression = None
@@ -108,7 +108,7 @@ class Face(threading.Thread):
         self.intensity = 1.0
         self._blink_opening = False
         self._blink_closing = False
-        self.rotation = 0
+        self.rotation = rotation
         self.defaults = {
             "eye_height": eye_height,
             "eye_width": eye_width,
@@ -123,7 +123,10 @@ class Face(threading.Thread):
         self.LOWER_BOUND_Y = 80
         self.UPPER_BOUND_Y = 160
 
-        self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
+        if tpe:
+            self.threadpoolexecutor = tpe
+        else:
+            self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
 
     def clear(self):
         self.draw.rectangle((0, 0, self.display.width, self.display.height), fill="black")
@@ -132,7 +135,7 @@ class Face(threading.Thread):
         self.clear()
         self._draw_eyes()
         self._draw_mouth()
-        self._draw_extras() 
+        self._draw_extras()
 
         # Make black areas of face transparent
         data = np.array(self.image)
@@ -384,7 +387,7 @@ class Face(threading.Thread):
             self.color = self.defaults["color"]
         else:
             self.color = EMOTION_COLORS[self.emotion]
- 
+
     def blink(self):
         if self.blinking:
             return
@@ -410,7 +413,7 @@ class Face(threading.Thread):
 
         def _gaze_on():
             while self.gazing.is_set():
-                self.move_to(*self.random_within_bounds(), speed=random.randint(5, 10))
+                self.move_to(*self.random_within_bounds(), speed=random.randint(10, 20))
                 time.sleep(random.randint(3, 8))
 
         self._submit(_gaze_on)
@@ -475,10 +478,10 @@ class Face(threading.Thread):
             prev = now
 
     def _draw_background(self):
-        bg = ImageOps.colorize(self.background, black="black", mid=self.color, white=self.color)  
+        bg = ImageOps.colorize(self.background, black="black", mid=self.color, white=self.color)
         enhancer = ImageEnhance.Brightness(bg)
         bg = enhancer.enhance(self.intensity)
-        self.image.paste(bg, (0, 0)) 
+        self.image.paste(bg, (0, 0))
 
     def vary_intensity(self, intensities):
         """intensities is a lits of 2 int tuples, where the first is a brightness factor, and the second is a duration"""
@@ -501,7 +504,7 @@ class Face(threading.Thread):
 
         self._submit(_vary)
 
-        
+
 if __name__ == "__main__":
     face = Face(color="seagreen", eye_height=40, eye_width=40)
     face.start()

@@ -16,7 +16,7 @@ import uvicorn
 import voice
 from speech import SpeechProcessor
 from face import Face, EMOTION_COLORS
-from head import Head
+from servo import Servo
 from emotion import Emotion, EmotionState
 from wheels import Wheels
 from server import server
@@ -29,10 +29,11 @@ class BUDD_E:
 
     def __init__(self, color="seagreen", model=BIG):
         self.model = model
-        self.head = Head(servo_pin=23)
-        self.face = Face(color=color, eye_height=60 if self.model == self.BIG else 50, eye_width=40 if self.model == self.BIG else 50, distance=60 if self.model == self.BIG else 80, radius=12 if self.model == self.BIG else 20)
-        #self.camera = Camera() 
+        big = self.model == self.BIG
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
+        self.servo = Servo(servo_pin=23, tpe=self.threadpoolexecutor)
+        self.face = Face(tpe=self.threadpoolexecutor, color=color, rotation=0 if big else 270, eye_height=60 if big else 50, eye_width=40 if big else 50, distance=60 if big else 80, radius=12 if big else 20)
+        #self.camera = Camera() # todo; have picam3 wide for budd-e, need a cam for lil budd-e...
         self.emotion = EmotionState()
         self.disposition = np.array([15., 5., 10.])
         self._boredom_time = 10.0
@@ -76,7 +77,7 @@ class BUDD_E:
     def _terminate(self):
         self.threadpoolexecutor.shutdown()
         self.face.stop()
-        self.head.cleanup()
+        self.servo.cleanup()
 
 
     def quit(self):
@@ -109,11 +110,11 @@ class BUDD_E:
     def yes(self):
         self.say("yes")
         self.face.nod()
-        self.head.nod()
 
     def no(self):
         self.say("no")
         self.face.shake_no()
+        self.servo.shake()
 
     def thank_you(self):
         self.say("thank you")
@@ -125,6 +126,7 @@ class BUDD_E:
 
     def explore(self):
         self.face.gaze_on()
+        #self.servo.gaze_on()
 
     # TODO update to match self.emotion
     def express_status(self):
@@ -154,6 +156,8 @@ class BUDD_E:
         self.say("yes")
         self.face.gaze_off()
         self.face.return_to_anchor()
+        self.servo.gaze_off()
+        self.servo.center()
 
     def express(self, emotion: Emotion, expression: str=None):
         """Temporarily express an emotion (e.g. reacting during a chat)"""
@@ -267,7 +271,6 @@ class BUDD_E:
     def process_command(self, command: str):
         if command == "yes":
             self.face.nod()
-            self.head.nod()
             return
 
         if command.split()[0] == "emotion":
@@ -448,11 +451,12 @@ def main(model):
             budd_e.chat()
             continue
 
-        intent, modifiers = budd_e.sp.process(command)
 
         if budd_e.model == "lil":
             continue
-        
+
+        intent, modifiers = budd_e.sp.process(command)
+
         ## Big budd-e (aka budd-e) -only features below
 
         if intent == "forward":

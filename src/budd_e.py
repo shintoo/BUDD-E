@@ -36,6 +36,7 @@ class BUDD_E:
         #self.camera = Camera() # todo; have picam3 wide for budd-e, need a cam for lil budd-e...
         self.emotion = EmotionState()
         self.emotion_regulator = EmotionRegulator.from_archive("regulator-archives/v0")
+        self.tracked_stimuli = ["person1", "person2", "toy1", "toy2"]
         self.disposition = np.array([15., 5., 10.])
         self._boredom_time = 10.0
         self.prev_interaction = datetime.now()
@@ -369,6 +370,8 @@ class BUDD_E:
             self.express_status()
 
     def update_with_regulator(self, delta):
+        # Maybe we can have happy-chat and sad-chat as one-hot encoded fields in our regulator input vector??
+        # Might be a waste if it is rarely used (but also might be just fine)
         if self.chatting:
             return
 
@@ -376,7 +379,11 @@ class BUDD_E:
             cmd = server.state.queue.get_nowait()
             self.process_command(cmd)
 
-        pad_delta = self.emotion_regulator.next_delta(self.emotion)
+        now = datetime.now()
+
+        objects = ["person1"] if 10 < now.hour < 18 else [] # mocking this till we have imx500 set up :-)
+
+        pad_delta = self.emotion_regulator.next_delta(emotion_state=self.emotion, stimuli=objects, datetime.now())
         self.impart_effect(pad_delta)
 
 def main(model):

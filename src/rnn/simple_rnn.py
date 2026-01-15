@@ -23,7 +23,10 @@ class SimpleRNN:
 
     @classmethod
     def from_archive(cls, filepath):
-        with np.load(filepath) as archive:
+        src = filepath
+        if src[-4:] != ".npz":
+            src += ".npz"
+        with np.load(src) as archive:
             kwargs = archive
 
             return cls(
@@ -34,7 +37,11 @@ class SimpleRNN:
             )
 
     def save_to_archive(self, filepath):
-        np.savez(filepath, W_ih=self.W_ih, W_hh=self.W_hh, W_ho=self.W_ho, B_h=self.B_h, B_o=self.B_o)
+        #np.savez(filepath, W_ih=self.W_ih, W_hh=self.W_hh, W_ho=self.W_ho, B_h=self.B_h, B_o=self.B_o)
+        dest = filepath
+        if dest[-4:] != ".npz":
+            dest += ".npz"
+        np.savez(dest, **self.__dict__)
 
     def forward(self, inputs, initial_hidden_state=None, inspect=False):
         if inspect:
@@ -168,10 +175,10 @@ class SimpleRNN:
             self.B_o -= learning_rate * dB_o
 
             # See loss every 100 epochs
-            if e % 100 == 0:
-                print(f"Epoch {e}: loss is {loss}")
+            #if e % 100 == 0:
+                #print(f"Epoch {e}: loss is {loss}")
 
-
+        return loss
 
 def calculate_loss(predictions, targets):
     losses = [a[0] - a[1] for a in zip(predictions, targets)]
@@ -181,18 +188,39 @@ def calculate_loss(predictions, targets):
     return mse
 
 if __name__ == "__main__":
-    rnn = SimpleRNN(4, 10, 3)
-    inputs = np.random.rand(5, 4)
 
-    forward_results = rnn.forward(inputs)
+    sim = SimpleRNN(input_size=1, hidden_size=10, output_size=1)
 
-    ys, hs = forward_results
+    training_inputs = np.array([[1.], [3.], [2.], [5.], [4.]])
+    training_targets = np.array([[0.], [1.], [3.], [2.], [5.]])
+    test_inputs = np.array([[3.], [2.], [5.], [4.], [1.]])
+    test_targets = np.array([[0.], [3.], [2.], [5.], [4.]])
 
-    print(f"Outputs (shapes {ys[0].shape}):")
-    for y in ys:
-        print(y)
+    print("\n======== Training ========\n")
+    sim_loss = sim.train(training_inputs, training_targets, learning_rate=0.01, epochs=1000)
+    print(f"Training complete: {sim_loss=}")
 
-    print(f"\nHiddens (shapes {hs[0].shape}):")
-    for h in hs:
-        print(h)
+    print(f"\n======= Testing =========\n")
+    ys_sim, hs_sim = sim.forward(test_inputs)
+    print("Inputs: ", test_inputs.flatten())
+    print("Outputs:", np.round(ys_sim, 2).flatten())
+    print("Targets:", test_targets.flatten())
+
+    print("\n===== Save/Load Test =====\n")
+
+    archive_root = "simple_rnn_archive_test"
+
+    print(f"Saving to {archive_root}")
+    sim.save_to_archive(archive_root)
+    print(f"Loading from {archive_root}")
+    twin = SimpleRNN.from_archive(archive_root)
+
+    ys_twin, hs_twin = twin.forward(test_inputs)
+
+    print("Inputs: ", test_inputs.flatten())
+    print("Outputs:", np.round(ys_twin, 2).flatten())
+    print("Targets:", test_targets.flatten())
+
+    print(f"{all(ys_twin==ys_sim)=}, {all((hs_twin==hs_sim).flatten())=}")
+
 

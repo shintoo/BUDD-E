@@ -52,7 +52,20 @@ class EmotionState:
     def previous(self):
         return self._previous
 
-if __name__ == "__main__":
+    @property
+    def P(self):
+        return self.pad_vector[0]
+
+    @property
+    def A(self):
+        return self.pad_vector[1]
+
+    @property
+    def D(self):
+        return self.pad_vector[2]
+
+
+if __name__ = "__main__":
     es = EmotionState()
 
     while True:

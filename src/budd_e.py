@@ -335,6 +335,32 @@ class BUDD_E:
 
         return status
 
+    def idle_fidget(self):
+        express_min_prob = 1/3600
+        express_max_prob = 1/5
+        turn_min_prob = express_min_prob
+        turn_max_prob = 1/4
+
+        modulator = self.emotion.A
+
+        # Map from [-1, 1] to [0, 1], then scale to [min_prob, max_prob]
+        normalized = (frequency_var + 1) / 2  # converts -1..1 to 0..1
+        probability = min_prob + normalized * (max_prob - min_prob)
+
+        # Exp version
+        #normalized = (frequency_var + 1) / 2
+        #interval = min_interval * (max_interval / min_interval) ** normalized
+        #probability = 1 / interval
+
+        if random.random() < probability:
+            self.express_status()
+        if random.random() < probability:
+            self.servo.random_turn()
+
+
+
+
+
     def update(self, delta):
         # Skip EoT during chat
         if self.chatting:
@@ -370,6 +396,8 @@ class BUDD_E:
             self.express_status()
 
     def update_with_regulator(self, delta):
+        # Moving to PAD values being in [-1.0, 1.0] instead of [-100, 100]
+
         # Maybe we can have happy-chat and sad-chat as one-hot encoded fields in our regulator input vector??
         # Might be a waste if it is rarely used (but also might be just fine)
         if self.chatting:
@@ -381,10 +409,13 @@ class BUDD_E:
 
         now = datetime.now()
 
+        self.idle_fidget()
+
         objects = ["person1"] if 10 < now.hour < 18 else [] # mocking this till we have imx500 set up :-)
 
         pad_delta = self.emotion_regulator.next_delta(emotion_state=self.emotion, stimuli=objects, datetime.now())
         self.impart_effect(pad_delta)
+
 
 def main(model):
     budd_e = BUDD_E(model=BUDD_E.LIL if model == "lil" else BUDD_E.BIG)
@@ -399,7 +430,7 @@ def main(model):
             prev = now
 
             budd_e.update(delta)
-            time.sleep(1)
+            time.sleep(5)
 
     Thread(target=_update_budde_thread).start()
 

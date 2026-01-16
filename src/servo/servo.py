@@ -59,6 +59,9 @@ class Servo:
     def _submit(self, task):
         self.threadpoolexecutor.submit(task)
 
+    def random_turn(self, bounds=(0, 180)):
+        self.set_turn_angle(random.randint(bounds))
+
     def gaze_on(self):
         self.gazing.set()
 

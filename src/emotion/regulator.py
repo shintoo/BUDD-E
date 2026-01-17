@@ -1,10 +1,13 @@
 from datetime import datetime
 import json
 import math
+import random
+import time
 import numpy as np
 from rnn.simple_rnn import SimpleRNN
 
 class EmotionRegulator:
+    """Using a SimpleRNN, calculate PAD deltas using environmental stimuli"""
     def __init__(self, tracked_stimuli: [str], thought_state_size: int, rnn: SimpleRNN=None, ths: np.ndarray=None):
         self.tracked_stimuli = tracked_stimuli
         self.input_size = 3 + len(tracked_stimuli) + 2 # P, A, D, + stimuli, + time of day
@@ -17,11 +20,11 @@ class EmotionRegulator:
         # Load model
         rnn = SimpleRNN.from_archive(filepath + ".rnn.npz")
 
-        # Load saved thoughts
+        # Load saved thought state
         with np.load(filepath + ".ths.npz") as tsf:
             thought_state = tsf["thought_state"]
        
-        # Load configured tracked stimuli associated with this model and these thoughts
+        # Load configured tracked stimuli associated with this model
         with open(filepath + ".ts", "r") as ts:
             tracked_stimuli = json.load(ts)["tracked_stimuli"]
 
@@ -54,7 +57,7 @@ class EmotionRegulator:
         return pad_delta
 
 
-def run_and_save():
+def archive_test():
     er = EmotionRegulator(
             tracked_stimuli = [
                 "person",
@@ -84,5 +87,33 @@ def run_and_save():
 
     assert all(delta_pad1 == delta_pad2), "pre-save and post-load computed deltas do not match"
 
+def forward_apply_test():
+    iterations = 5
+    er = EmotionRegulator(
+            tracked_stimuli = [
+                "person",
+                "cup",
+            ],
+            thought_state_size=30
+    )
+
+    class MockEmotionState:
+        def __init__(self, p, a, d):
+            self.pad_vector = np.array([p, a, d])
+
+    es = MockEmotionState(0.50, 0.20, 0.30)
+
+    i = iterations
+    while i:
+        print(f"PAD: {np.round(es.pad_vector, decimals=3)} ", end="")
+        delta_pad = er.next_delta(es, ["person" if random.random() < 0.5 else "cup"], datetime.now())
+        print(f"delta: {delta_pad}")
+        es.pad_vector += delta_pad
+        i -= 1
+        time.sleep(1)
+
 if __name__ == "__main__":
-    run_and_save()
+    print("===== Archive save/load ======", flush=True)
+    archive_test()
+    print("\n===== Forward apply test =====",  flush=True)
+    forward_apply_test()

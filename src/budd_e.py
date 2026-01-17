@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import math
 import traceback
 from threading import Thread
-from random import randint
+from random import randint, random
 from typing import Optional
 
 import numpy as np
@@ -21,7 +21,7 @@ from emotion import Emotion, EmotionState
 from wheels import Wheels
 from server import server
 from battery import Battery
-#from camera import Camera
+from camera import IMX500Camera
 
 class BUDD_E:
     LIL = "lil"
@@ -33,11 +33,11 @@ class BUDD_E:
         self.threadpoolexecutor = ThreadPoolExecutor(max_workers=5)
         self.servo = Servo(servo_pin=23, tpe=self.threadpoolexecutor)
         self.face = Face(tpe=self.threadpoolexecutor, color=color, rotation=0 if big else 270, eye_height=60 if big else 50, eye_width=40 if big else 50, distance=60 if big else 80, radius=12 if big else 20)
-        #self.camera = Camera() # todo; have picam3 wide for budd-e, need a cam for lil budd-e...
+        self.camera = IMX500Camera(model="/usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk", frame_rate=1)
         self.emotion = EmotionState()
         self.emotion_regulator = EmotionRegulator.from_archive("regulator-archives/v0")
         self.tracked_stimuli = ["person1", "person2", "toy1", "toy2"]
-        self.disposition = np.array([15., 5., 10.])
+        self.disposition = np.array([0, 0, 0])
         self._boredom_time = 10.0
         self.prev_interaction = datetime.now()
         # This is saved external to self.emotion so we can track when it changes (i.e. compare new label to previous)
@@ -335,31 +335,30 @@ class BUDD_E:
 
         return status
 
-    def idle_fidget(self):
-        express_min_prob = 1/3600
-        express_max_prob = 1/5
+    def idle_fidget(self, delta):
+        # Probabilities are expressed in occurences per second
+        express_min_prob = 1/3600 * delta
+        express_max_prob = 1/5 * delta
         turn_min_prob = express_min_prob
-        turn_max_prob = 1/4
+        turn_max_prob = express_max_prob
 
+        # Fidget rate is based on arousal
         modulator = self.emotion.A
 
-        # Map from [-1, 1] to [0, 1], then scale to [min_prob, max_prob]
-        normalized = (frequency_var + 1) / 2  # converts -1..1 to 0..1
-        probability = min_prob + normalized * (max_prob - min_prob)
+        normalized = (modulator + 1) / 2
+        express_probability = express_min_prob + normalized * (express_max_prob - express_min_prob)
+        turn_probability = turn_min_prob + normalized * (turn_max_prob - turn_min_prob)
 
-        # Exp version
-        #normalized = (frequency_var + 1) / 2
-        #interval = min_interval * (max_interval / min_interval) ** normalized
-        #probability = 1 / interval
-
-        if random.random() < probability:
+        if random() < probability:
             self.express_status()
-        if random.random() < probability:
+ 
+        if random() < probability:
             self.servo.random_turn()
 
-
-
-
+        # Exp version
+        #normalized = (modulator + 1) / 2
+        #interval = min_interval * (max_interval / min_interval) ** normalized
+        #probability = 1 / interval
 
     def update(self, delta):
         # Skip EoT during chat
@@ -392,8 +391,7 @@ class BUDD_E:
 
         self.impart_effect(effect_over_time)
 
-        if randint(1, 30) == 5:
-            self.express_status()
+        self.idle_fidget(delta)
 
     def update_with_regulator(self, delta):
         # Moving to PAD values being in [-1.0, 1.0] instead of [-100, 100]
@@ -411,7 +409,8 @@ class BUDD_E:
 
         self.idle_fidget()
 
-        objects = ["person1"] if 10 < now.hour < 18 else [] # mocking this till we have imx500 set up :-)
+        objects = self.camera.get_objects()
+        object_labels = [o["label"] for o in objects]
 
         pad_delta = self.emotion_regulator.next_delta(emotion_state=self.emotion, stimuli=objects, datetime.now())
         self.impart_effect(pad_delta)
